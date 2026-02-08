@@ -9,9 +9,13 @@ import SwiftUI
 
 @main
 struct ZigglerApp: App {
+    @StateObject private var mouseController = MouseController()
+
     var body: some Scene {
-        WindowGroup {
+        MenuBarExtra("Ziggler", systemImage: "cursorarrow.motionlines") {
             ContentView()
+                .environmentObject(mouseController)
         }
+        .menuBarExtraStyle(.window)
     }
 }
