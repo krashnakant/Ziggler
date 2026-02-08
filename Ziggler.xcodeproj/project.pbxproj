@@ -23,6 +23,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7CA00001AAAA000100000001 /* KeyboardShortcuts in Frameworks */,
+				7CA00002AAAA000200000002 /* MenuBarExtraAccess in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -66,6 +68,8 @@
 			);
 			name = Ziggler;
 			packageProductDependencies = (
+				7CA00003AAAA000300000003 /* KeyboardShortcuts */,
+				7CA00004AAAA000400000004 /* MenuBarExtraAccess */,
 			);
 			productName = Ziggler;
 			productReference = 7C2FF7A52F37E35600EBCDE2 /* Ziggler.app */;
@@ -96,6 +100,10 @@
 			mainGroup = 7C2FF79C2F37E35600EBCDE2;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
+			packageReferences = (
+				7CA00005AAAA000500000005 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
+				7CA00006AAAA000600000006 /* XCRemoteSwiftPackageReference "MenuBarExtraAccess" */,
+			);
 			productRefGroup = 7C2FF7A62F37E35600EBCDE2 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -348,6 +356,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		7CA00005AAAA000500000005 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sindresorhus/KeyboardShortcuts";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.2.1;
+			};
+		};
+		7CA00006AAAA000600000006 /* XCRemoteSwiftPackageReference "MenuBarExtraAccess" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/orchetect/MenuBarExtraAccess";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.5;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		7CA00003AAAA000300000003 /* KeyboardShortcuts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7CA00005AAAA000500000005 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */;
+			productName = KeyboardShortcuts;
+		};
+		7CA00004AAAA000400000004 /* MenuBarExtraAccess */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7CA00006AAAA000600000006 /* XCRemoteSwiftPackageReference "MenuBarExtraAccess" */;
+			productName = MenuBarExtraAccess;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 7C2FF79D2F37E35600EBCDE2 /* Project object */;
 }

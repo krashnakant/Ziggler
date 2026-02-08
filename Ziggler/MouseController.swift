@@ -5,60 +5,42 @@
 //  Created by Krashna Chaurasia on 07.02.26.
 //
 
-import SwiftUI
-import Combine
-import CoreGraphics
-import Carbon
 import AppKit
+import Combine
+import KeyboardShortcuts
+import ServiceManagement
 
-// Movement pattern types
+extension KeyboardShortcuts.Name {
+    static let toggleMovement = Self("toggleMovement")
+}
+
 enum MovementPattern: String, CaseIterable {
     case random = "Random"
     case circular = "Circular"
     case figure8 = "Figure 8"
-    case natural = "Natural (Human-like)"
 }
 
 class MouseController: ObservableObject {
     @Published var isMoving = false
-    @Published var selectedPattern: MovementPattern = .natural
+    @Published var selectedPattern: MovementPattern = .random
     @Published var speed: Double = 50.0
     @Published var hasPermission = AXIsProcessTrusted()
+    @Published var launchAtLogin = false
 
     private var timer: Timer?
     private var delayTimer: Timer?
     private var eventMonitor: Any?
-    private var workspaceObserver: Any?
-    private var angle: Double = 0.0
-    private var step: Int = 0
-    private var moveCount: Int = 0
     private var permissionTimer: Timer?
+    private var angle: Double = 0.0
 
     init() {
         setupKeyboardMonitor()
+        setupGlobalShortcut()
         startPermissionPolling()
-        // Auto-prompt on launch if not yet granted
+        refreshLoginItemStatus()
         if !hasPermission {
             requestAccessibilityPermission()
         }
-    }
-
-    // Poll permission status silently (no prompt)
-    private func startPermissionPolling() {
-        permissionTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            let current = AXIsProcessTrusted()
-            if current != self.hasPermission {
-                self.hasPermission = current
-            }
-        }
-    }
-
-    // Only prompt when user explicitly requests it
-    func requestAccessibilityPermission() {
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-        let granted = AXIsProcessTrustedWithOptions(options)
-        hasPermission = granted
     }
 
     deinit {
@@ -67,54 +49,82 @@ class MouseController: ObservableObject {
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
-        if let observer = workspaceObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+    }
+
+    // MARK: - Launch at Login
+
+    func refreshLoginItemStatus() {
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            launchAtLogin = enabled
+        } catch {
+            print("Failed to \(enabled ? "enable" : "disable") launch at login: \(error)")
+            refreshLoginItemStatus()
         }
     }
+
+    // MARK: - Global Shortcut
+
+    private func setupGlobalShortcut() {
+        KeyboardShortcuts.onKeyUp(for: .toggleMovement) { [weak self] in
+            self?.toggleMovement()
+        }
+    }
+
+    func toggleMovement() {
+        if isMoving {
+            stopMovement()
+        } else {
+            startMovement()
+        }
+    }
+
+    // MARK: - Permissions
+
+    private func startPermissionPolling() {
+        permissionTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.hasPermission = AXIsProcessTrusted()
+        }
+    }
+
+    func requestAccessibilityPermission() {
+        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+        hasPermission = AXIsProcessTrustedWithOptions(options)
+    }
+
+    // MARK: - Keyboard Monitor
 
     private func setupKeyboardMonitor() {
-        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-            guard let self = self, self.isMoving else { return }
+        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown]) { [weak self] _ in
+            guard let self, self.isMoving else { return }
             self.stopMovement()
         }
-
-        workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let self = self, self.isMoving else { return }
-            if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-               app.bundleIdentifier != Bundle.main.bundleIdentifier {
-                self.stopMovement()
-            }
-        }
     }
+
+    // MARK: - Movement
 
     func startMovement() {
         guard !isMoving else { return }
 
         angle = 0.0
-        step = 0
-        moveCount = 0
         isMoving = true
 
         delayTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            self.beginMovement()
-        }
-        if let t = delayTimer {
-            RunLoop.main.add(t, forMode: .common)
+            self?.beginMovement()
         }
     }
 
     private func beginMovement() {
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            self.performMovement()
-        }
-        if let t = timer {
-            RunLoop.main.add(t, forMode: .common)
+        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.performMovement()
         }
     }
 
@@ -125,24 +135,21 @@ class MouseController: ObservableObject {
         delayTimer?.invalidate()
         delayTimer = nil
         angle = 0.0
-        step = 0
-        moveCount = 0
     }
 
     private func performMovement() {
-        moveCount += 1
-
         let cocoaLocation = NSEvent.mouseLocation
-        guard let screenHeight = NSScreen.main?.frame.height else { return }
-        let currentLocation = CGPoint(x: cocoaLocation.x, y: screenHeight - cocoaLocation.y)
+        guard let screen = NSScreen.main else { return }
+        let screenHeight = screen.frame.height
+        let currentX = cocoaLocation.x
+        let currentY = screenHeight - cocoaLocation.y
 
-        var newX = currentLocation.x
-        var newY = currentLocation.y
-
-        let moveDistance = CGFloat(speed / 100.0 * 10.0)
+        let moveDistance = CGFloat(speed / 10.0)
+        var newX = currentX
+        var newY = currentY
 
         switch selectedPattern {
-        case .natural, .random:
+        case .random:
             let randomAngle = CGFloat.random(in: 0...(2 * .pi))
             newX += cos(randomAngle) * moveDistance
             newY += sin(randomAngle) * moveDistance
@@ -159,18 +166,15 @@ class MouseController: ObservableObject {
             newY += sin(2 * angle) * moveDistance * 3
         }
 
-        if let screen = NSScreen.main {
-            newX = max(10, min(newX, screen.frame.width - 10))
-            newY = max(10, min(newY, screenHeight - 10))
-        }
+        newX = max(10, min(newX, screen.frame.width - 10))
+        newY = max(10, min(newY, screenHeight - 10))
 
-        moveMouse(to: CGPoint(x: newX, y: newY))
-    }
-
-    private func moveMouse(to point: CGPoint) {
-        guard let moveEvent = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else {
-            return
-        }
+        guard let moveEvent = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .mouseMoved,
+            mouseCursorPosition: CGPoint(x: newX, y: newY),
+            mouseButton: .left
+        ) else { return }
         moveEvent.post(tap: .cghidEventTap)
     }
 }

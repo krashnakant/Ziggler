@@ -5,14 +5,15 @@
 //  Created by Krashna Chaurasia on 07.02.26.
 //
 
+import KeyboardShortcuts
 import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var mouseController: MouseController
+    @AppStorage("showMenuBarIcon") var showMenuBarIcon = true
 
     var body: some View {
         VStack(spacing: 0) {
-            // Status
             VStack(spacing: 8) {
                 HStack {
                     Circle()
@@ -22,21 +23,20 @@ struct ContentView: View {
                         .font(.headline)
                 }
 
-                if !mouseController.hasPermission {
-                    Label("Permission Required", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                } else {
+                if mouseController.hasPermission {
                     Label("Ready", systemImage: "checkmark.circle.fill")
                         .font(.caption)
                         .foregroundStyle(.green)
+                } else {
+                    Label("Permission Required", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
                 }
             }
             .padding()
 
             Divider()
 
-            // Movement Pattern
             VStack(alignment: .leading, spacing: 8) {
                 Text("Movement Pattern")
                     .font(.subheadline)
@@ -54,7 +54,6 @@ struct ContentView: View {
 
             Divider()
 
-            // Speed Slider
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Speed")
@@ -74,38 +73,12 @@ struct ContentView: View {
 
             Divider()
 
-            // Action Button
             VStack(spacing: 6) {
-                if mouseController.isMoving {
-                    Button(action: { mouseController.stopMovement() }) {
-                        Text("Stop Movement")
-                            .frame(maxWidth: .infinity)
-                    }
+                actionButton
                     .controlSize(.large)
                     .buttonStyle(.borderedProminent)
-                    .tint(.red)
 
-                    Text("Starts in 3 seconds...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if mouseController.hasPermission {
-                    Button(action: { mouseController.startMovement() }) {
-                        Text("Start Movement")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
-                } else {
-                    Button(action: { mouseController.requestAccessibilityPermission() }) {
-                        Label("Grant Permission First", systemImage: "exclamationmark.triangle.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
-                }
-
-                Text("Auto-stops on Cmd+Tab or any keypress")
+                Text("Auto-stops on any keypress")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -113,7 +86,31 @@ struct ContentView: View {
 
             Divider()
 
-            // Quit
+            // MARK: - Settings
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Shortcut")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    KeyboardShortcuts.Recorder(for: .toggleMovement)
+                }
+
+                Toggle("Launch at Login", isOn: Binding(
+                    get: { mouseController.launchAtLogin },
+                    set: { mouseController.setLaunchAtLogin($0) }
+                ))
+                .font(.subheadline)
+
+                Toggle("Show Menu Bar Icon", isOn: $showMenuBarIcon)
+                    .font(.subheadline)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+
+            Divider()
+
             Button("Quit Ziggler") {
                 NSApplication.shared.terminate(nil)
             }
@@ -122,6 +119,28 @@ struct ContentView: View {
             .padding(.vertical, 8)
         }
         .frame(width: 280)
+    }
+
+    @ViewBuilder
+    private var actionButton: some View {
+        if mouseController.isMoving {
+            Button(action: { mouseController.stopMovement() }) {
+                Text("Stop Movement")
+                    .frame(maxWidth: .infinity)
+            }
+            .tint(.red)
+        } else if mouseController.hasPermission {
+            Button(action: { mouseController.startMovement() }) {
+                Text("Start Movement")
+                    .frame(maxWidth: .infinity)
+            }
+        } else {
+            Button(action: { mouseController.requestAccessibilityPermission() }) {
+                Label("Grant Permission First", systemImage: "exclamationmark.triangle.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .tint(.orange)
+        }
     }
 }
 
