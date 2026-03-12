@@ -5,8 +5,10 @@ A lightweight macOS menu bar app that keeps your mouse cursor moving to prevent 
 ## Features
 
 - **Menu bar app** — lives in your menu bar, no dock icon clutter
-- **Multiple movement patterns** — Random, Circular, Figure 8, Natural (Human-like)
+- **Multiple movement patterns** — Random, Circular, Figure 8, Human
 - **Adjustable speed** — slider from 10% to 100%
+- **Smooth motion** — high-frequency cursor updates instead of coarse jumps
+- **Screen-aware bounds** — keeps the cursor on the current display
 - **Smart auto-stop** — stops on Cmd+Tab (app switch) or any keypress
 - **3-second delay** — gives you time to switch windows before movement starts
 - **Accessibility permission handling** — auto-prompts on launch, auto-resets on dev rebuilds

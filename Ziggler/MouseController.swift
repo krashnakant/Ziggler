@@ -14,12 +14,6 @@ extension KeyboardShortcuts.Name {
     static let toggleMovement = Self("toggleMovement")
 }
 
-enum MovementPattern: String, CaseIterable {
-    case random = "Random"
-    case circular = "Circular"
-    case figure8 = "Figure 8"
-}
-
 class MouseController: ObservableObject {
     @Published var isMoving = false
     @Published var selectedPattern: MovementPattern = .random
@@ -27,25 +21,27 @@ class MouseController: ObservableObject {
     @Published var hasPermission = AXIsProcessTrusted()
     @Published var launchAtLogin = false
 
-    private var timer: Timer?
-    private var delayTimer: Timer?
+    private var movementTimer: DispatchSourceTimer?
+    private var delayedStartWorkItem: DispatchWorkItem?
     private var eventMonitor: Any?
-    private var permissionTimer: Timer?
-    private var angle: Double = 0.0
+    private var permissionTimer: DispatchSourceTimer?
+    private var motionState = MotionState()
+    private var lastMovementTimestamp: CFTimeInterval?
+    private var lastResolvedScreen: NSScreen?
 
     init() {
         setupKeyboardMonitor()
         setupGlobalShortcut()
-        startPermissionPolling()
         refreshLoginItemStatus()
         if !hasPermission {
             requestAccessibilityPermission()
+            startPermissionPolling()
         }
     }
 
     deinit {
         stopMovement()
-        permissionTimer?.invalidate()
+        permissionTimer?.cancel()
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -90,19 +86,49 @@ class MouseController: ObservableObject {
     // MARK: - Permissions
 
     private func startPermissionPolling() {
-        permissionTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            self?.hasPermission = AXIsProcessTrusted()
+        guard permissionTimer == nil else { return }
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 5.0, repeating: 5.0, leeway: .seconds(1))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.handlePermissionStatusChange(AXIsProcessTrusted())
+        }
+        permissionTimer = timer
+        timer.resume()
+    }
+
+    private func stopPermissionPolling() {
+        permissionTimer?.cancel()
+        permissionTimer = nil
+    }
+
+    private func handlePermissionStatusChange(_ granted: Bool) {
+        if granted && !hasPermission {
+            setupKeyboardMonitor()
+        }
+
+        hasPermission = granted
+
+        if granted {
+            stopPermissionPolling()
+        } else if permissionTimer == nil {
+            startPermissionPolling()
         }
     }
 
     func requestAccessibilityPermission() {
         let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-        hasPermission = AXIsProcessTrustedWithOptions(options)
+        handlePermissionStatusChange(AXIsProcessTrustedWithOptions(options))
     }
 
     // MARK: - Keyboard Monitor
 
     private func setupKeyboardMonitor() {
+        if let existing = eventMonitor {
+            NSEvent.removeMonitor(existing)
+            eventMonitor = nil
+        }
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown]) { [weak self] _ in
             guard let self, self.isMoving else { return }
             self.stopMovement()
@@ -114,67 +140,106 @@ class MouseController: ObservableObject {
     func startMovement() {
         guard !isMoving else { return }
 
-        angle = 0.0
+        motionState = MotionState()
+        lastMovementTimestamp = nil
+        lastResolvedScreen = nil
         isMoving = true
 
-        delayTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+        let workItem = DispatchWorkItem { [weak self] in
             self?.beginMovement()
         }
+        delayedStartWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: workItem)
     }
 
     private func beginMovement() {
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        movementTimer?.cancel()
+        lastMovementTimestamp = CACurrentMediaTime()
+        let interval = MotionScheduling.updateInterval(for: speed)
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: interval, leeway: .milliseconds(2))
+        timer.setEventHandler { [weak self] in
             self?.performMovement()
         }
+        movementTimer = timer
+        timer.resume()
     }
 
     func stopMovement() {
         isMoving = false
-        timer?.invalidate()
-        timer = nil
-        delayTimer?.invalidate()
-        delayTimer = nil
-        angle = 0.0
+        movementTimer?.cancel()
+        movementTimer = nil
+        delayedStartWorkItem?.cancel()
+        delayedStartWorkItem = nil
+        motionState = MotionState()
+        lastMovementTimestamp = nil
+        lastResolvedScreen = nil
     }
 
     private func performMovement() {
-        let cocoaLocation = NSEvent.mouseLocation
-        guard let screen = NSScreen.main else { return }
-        let screenHeight = screen.frame.height
-        let currentX = cocoaLocation.x
-        let currentY = screenHeight - cocoaLocation.y
+        let currentLocation = NSEvent.mouseLocation
+        guard let screen = activeScreen(containing: currentLocation) else { return }
 
-        let moveDistance = CGFloat(speed / 10.0)
-        var newX = currentX
-        var newY = currentY
+        let now = CACurrentMediaTime()
+        let previousTimestamp = lastMovementTimestamp ?? now
+        let deltaTime = max(1.0 / 240.0, min(now - previousTimestamp, 1.0 / 20.0))
+        lastMovementTimestamp = now
 
-        switch selectedPattern {
-        case .random:
-            let randomAngle = CGFloat.random(in: 0...(2 * .pi))
-            newX += cos(randomAngle) * moveDistance
-            newY += sin(randomAngle) * moveDistance
-
-        case .circular:
-            angle += 0.1
-            let radius = moveDistance * 3
-            newX += cos(angle) * radius
-            newY += sin(angle) * radius
-
-        case .figure8:
-            angle += 0.1
-            newX += cos(angle) * moveDistance * 3
-            newY += sin(2 * angle) * moveDistance * 3
-        }
-
-        newX = max(10, min(newX, screen.frame.width - 10))
-        newY = max(10, min(newY, screenHeight - 10))
+        let nextLocation = MotionEngine.nextPoint(
+            from: currentLocation,
+            pattern: selectedPattern,
+            speed: speed,
+            bounds: screen.frame,
+            deltaTime: deltaTime,
+            state: &motionState
+        )
 
         guard let moveEvent = CGEvent(
             mouseEventSource: nil,
             mouseType: .mouseMoved,
-            mouseCursorPosition: CGPoint(x: newX, y: newY),
+            mouseCursorPosition: nextLocation,
             mouseButton: .left
         ) else { return }
         moveEvent.post(tap: .cghidEventTap)
+    }
+
+    private func activeScreen(containing point: CGPoint) -> NSScreen? {
+        if let lastResolvedScreen, lastResolvedScreen.frame.contains(point) {
+            return lastResolvedScreen
+        }
+
+        if let exactMatch = NSScreen.screens.first(where: { $0.frame.contains(point) }) {
+            lastResolvedScreen = exactMatch
+            return exactMatch
+        }
+
+        let nearestScreen = NSScreen.screens.min { lhs, rhs in
+            distanceSquared(from: point, to: lhs.frame) < distanceSquared(from: point, to: rhs.frame)
+        }
+        lastResolvedScreen = nearestScreen
+        return nearestScreen
+    }
+
+    private func distanceSquared(from point: CGPoint, to rect: CGRect) -> CGFloat {
+        let dx: CGFloat
+        if point.x < rect.minX {
+            dx = rect.minX - point.x
+        } else if point.x > rect.maxX {
+            dx = point.x - rect.maxX
+        } else {
+            dx = 0
+        }
+
+        let dy: CGFloat
+        if point.y < rect.minY {
+            dy = rect.minY - point.y
+        } else if point.y > rect.maxY {
+            dy = point.y - rect.maxY
+        } else {
+            dy = 0
+        }
+
+        return dx * dx + dy * dy
     }
 }
