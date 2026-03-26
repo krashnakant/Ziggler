@@ -5,7 +5,6 @@ enum MovementPattern: String, CaseIterable {
     case random = "Random"
     case circular = "Circular"
     case figure8 = "Figure 8"
-    case human = "Human"
 }
 
 struct MotionState {
@@ -63,23 +62,20 @@ enum MotionEngine {
                 deltaTime: effectiveDelta,
                 state: &state
             )
-        case .human:
-            unclampedPoint = nextHumanPoint(
-                from: currentPoint,
-                baseSpeed: baseSpeed,
-                bounds: safeBounds,
-                deltaTime: effectiveDelta,
-                state: &state
-            )
         }
 
         let clampedPoint = clamp(unclampedPoint, to: safeBounds)
         if clampedPoint != unclampedPoint {
-            state.velocity.dx *= 0.4
-            state.velocity.dy *= 0.4
+            if unclampedPoint.x != clampedPoint.x {
+                state.velocity.dx *= -0.8
+            }
+            if unclampedPoint.y != clampedPoint.y {
+                state.velocity.dy *= -0.8
+            }
             state.anchor = clamp(state.anchor ?? currentPoint, to: safeBounds)
             state.heading = atan2(state.velocity.dy, state.velocity.dx)
             state.targetHeading = state.heading
+            state.retargetFramesRemaining = 0
         }
 
         return clampedPoint
@@ -163,51 +159,6 @@ enum MotionEngine {
         return CGPoint(
             x: anchor.x + cos(state.angle) * horizontalRadius,
             y: anchor.y + sin(state.angle * 2.0) * verticalRadius
-        )
-    }
-
-    private static func nextHumanPoint(
-        from currentPoint: CGPoint,
-        baseSpeed: CGFloat,
-        bounds: CGRect,
-        deltaTime: CGFloat,
-        state: inout MotionState
-    ) -> CGPoint {
-        if state.retargetFramesRemaining <= 0 {
-            let headingDelta = CGFloat.random(in: (-.pi / 4)...(.pi / 4))
-            state.targetHeading = normalizeAngle(state.heading + headingDelta)
-            state.targetSpeed = baseSpeed * CGFloat.random(in: 0.35...0.85)
-            state.retargetFramesRemaining = Int.random(in: 20...90)
-        } else {
-            state.retargetFramesRemaining -= 1
-        }
-
-        let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        let toCenter = CGVector(dx: center.x - currentPoint.x, dy: center.y - currentPoint.y)
-        let centerHeading = atan2(toCenter.dy, toCenter.dx)
-        let distanceFromCenter = hypot(toCenter.dx, toCenter.dy)
-        let centerPull = min(0.22, distanceFromCenter / max(bounds.width, bounds.height) * 0.18)
-
-        let blendedTarget = interpolateAngle(
-            from: state.targetHeading,
-            to: centerHeading,
-            factor: centerPull
-        )
-        state.heading = interpolateAngle(from: state.heading, to: blendedTarget, factor: 0.08)
-        state.currentSpeed += (state.targetSpeed - state.currentSpeed) * 0.05
-
-        let jitterScale = max(0.6, state.currentSpeed * 0.04)
-        let desiredVelocity = CGVector(
-            dx: cos(state.heading) * state.currentSpeed + CGFloat.random(in: -jitterScale...jitterScale),
-            dy: sin(state.heading) * state.currentSpeed + CGFloat.random(in: -jitterScale...jitterScale)
-        )
-
-        state.velocity.dx += (desiredVelocity.dx - state.velocity.dx) * 0.12
-        state.velocity.dy += (desiredVelocity.dy - state.velocity.dy) * 0.12
-
-        return CGPoint(
-            x: currentPoint.x + state.velocity.dx * deltaTime,
-            y: currentPoint.y + state.velocity.dy * deltaTime
         )
     }
 

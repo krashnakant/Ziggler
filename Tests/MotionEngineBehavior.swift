@@ -47,39 +47,11 @@ private func testRandomAndFigure8StayWithinBounds() {
     }
 }
 
-private func testHumanMotionStaysWithinBoundsAndMovesSmoothly() {
-    let bounds = CGRect(x: 0, y: 0, width: 320, height: 240)
-    var state = MotionState()
-    var point = CGPoint(x: 160, y: 120)
-    var moved = false
-
-    for _ in 0..<360 {
-        let previous = point
-        point = MotionEngine.nextPoint(
-            from: point,
-            pattern: .human,
-            speed: 55,
-            bounds: bounds,
-            deltaTime: 1.0 / 60.0,
-            state: &state
-        )
-
-        let delta = hypot(point.x - previous.x, point.y - previous.y)
-        moved = moved || delta > 0.05
-
-        expect(bounds.contains(point), "Human pattern escaped bounds at \(point)")
-        expect(delta < 12, "Human pattern jumped too far in one frame: \(delta)")
-    }
-
-    expect(moved, "Human pattern never moved")
-}
-
 @main
 struct MotionEngineBehaviorRunner {
     static func main() {
         testCircularMotionStaysWithinBounds()
         testRandomAndFigure8StayWithinBounds()
-        testHumanMotionStaysWithinBoundsAndMovesSmoothly()
         print("MotionEngineBehavior passed")
     }
 }

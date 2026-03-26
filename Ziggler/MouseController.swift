@@ -28,6 +28,7 @@ class MouseController: ObservableObject {
     private var motionState = MotionState()
     private var lastMovementTimestamp: CFTimeInterval?
     private var lastResolvedScreen: NSScreen?
+    private var virtualLocation: CGPoint?
 
     init() {
         setupKeyboardMonitor()
@@ -143,6 +144,7 @@ class MouseController: ObservableObject {
         motionState = MotionState()
         lastMovementTimestamp = nil
         lastResolvedScreen = nil
+        virtualLocation = NSEvent.mouseLocation
         isMoving = true
 
         let workItem = DispatchWorkItem { [weak self] in
@@ -175,10 +177,11 @@ class MouseController: ObservableObject {
         motionState = MotionState()
         lastMovementTimestamp = nil
         lastResolvedScreen = nil
+        virtualLocation = nil
     }
 
     private func performMovement() {
-        let currentLocation = NSEvent.mouseLocation
+        let currentLocation = virtualLocation ?? NSEvent.mouseLocation
         guard let screen = activeScreen(containing: currentLocation) else { return }
 
         let now = CACurrentMediaTime()
@@ -194,14 +197,11 @@ class MouseController: ObservableObject {
             deltaTime: deltaTime,
             state: &motionState
         )
+        virtualLocation = nextLocation
 
-        guard let moveEvent = CGEvent(
-            mouseEventSource: nil,
-            mouseType: .mouseMoved,
-            mouseCursorPosition: nextLocation,
-            mouseButton: .left
-        ) else { return }
-        moveEvent.post(tap: .cghidEventTap)
+        let mainScreenHeight = CGDisplayBounds(CGMainDisplayID()).height
+        let cgLocation = CGPoint(x: nextLocation.x, y: mainScreenHeight - nextLocation.y)
+        CursorTransport.transportForContinuousMotion.moveCursor(to: cgLocation)
     }
 
     private func activeScreen(containing point: CGPoint) -> NSScreen? {
