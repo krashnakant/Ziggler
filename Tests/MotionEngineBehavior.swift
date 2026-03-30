@@ -26,18 +26,18 @@ private func testCircularMotionStaysWithinBounds() {
     }
 }
 
-private func testRandomAndFigure8StayWithinBounds() {
+private func testAllPatternsStayWithinBounds() {
     let bounds = CGRect(x: -120, y: 20, width: 420, height: 260)
 
-    for pattern in [MovementPattern.random, .figure8] {
+    for pattern in MovementPattern.allCases {
         var state = MotionState()
         var point = CGPoint(x: bounds.midX, y: bounds.midY)
 
-        for _ in 0..<300 {
+        for _ in 0..<400 {
             point = MotionEngine.nextPoint(
                 from: point,
                 pattern: pattern,
-                speed: 60,
+                speed: 75,
                 bounds: bounds,
                 deltaTime: 1.0 / 60.0,
                 state: &state
@@ -51,7 +51,7 @@ private func testRandomAndFigure8StayWithinBounds() {
 struct MotionEngineBehaviorRunner {
     static func main() {
         testCircularMotionStaysWithinBounds()
-        testRandomAndFigure8StayWithinBounds()
+        testAllPatternsStayWithinBounds()
         print("MotionEngineBehavior passed")
     }
 }

@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 
 enum MovementPattern: String, CaseIterable {
+    case human = "Human"
     case random = "Random"
     case circular = "Circular"
     case figure8 = "Figure 8"
@@ -16,6 +17,12 @@ struct MotionState {
     var currentSpeed: CGFloat = 0
     var targetSpeed: CGFloat = 0
     var retargetFramesRemaining: Int = 0
+    
+    // Human motion tracking
+    var targetPoint: CGPoint?
+    var startPoint: CGPoint?
+    var progress: CGFloat = 0
+    var pauseFramesRemaining: Int = 0
 }
 
 enum MotionEngine {
@@ -27,7 +34,7 @@ enum MotionEngine {
         deltaTime: Double,
         state: inout MotionState
     ) -> CGPoint {
-        let padding = max(8.0, CGFloat(speed) * 0.08)
+        let padding = max(20.0, CGFloat(speed) * 0.15)
         let safeBounds = bounds.insetBy(dx: padding, dy: padding)
         guard safeBounds.width > 0, safeBounds.height > 0 else {
             return clamp(currentPoint, to: bounds)
@@ -38,6 +45,14 @@ enum MotionEngine {
 
         let unclampedPoint: CGPoint
         switch pattern {
+        case .human:
+            unclampedPoint = nextHumanPoint(
+                from: currentPoint,
+                baseSpeed: baseSpeed,
+                bounds: safeBounds,
+                deltaTime: effectiveDelta,
+                state: &state
+            )
         case .random:
             unclampedPoint = nextRandomPoint(
                 from: currentPoint,
@@ -67,18 +82,84 @@ enum MotionEngine {
         let clampedPoint = clamp(unclampedPoint, to: safeBounds)
         if clampedPoint != unclampedPoint {
             if unclampedPoint.x != clampedPoint.x {
-                state.velocity.dx *= -0.8
+                state.velocity.dx *= -0.5
             }
             if unclampedPoint.y != clampedPoint.y {
-                state.velocity.dy *= -0.8
+                state.velocity.dy *= -0.5
             }
             state.anchor = clamp(state.anchor ?? currentPoint, to: safeBounds)
             state.heading = atan2(state.velocity.dy, state.velocity.dx)
             state.targetHeading = state.heading
             state.retargetFramesRemaining = 0
+            state.targetPoint = nil // Reset human target on collision
         }
 
         return clampedPoint
+    }
+
+    private static func nextHumanPoint(
+        from currentPoint: CGPoint,
+        baseSpeed: CGFloat,
+        bounds: CGRect,
+        deltaTime: CGFloat,
+        state: inout MotionState
+    ) -> CGPoint {
+        // If pausing, just stay put
+        if state.pauseFramesRemaining > 0 {
+            state.pauseFramesRemaining -= 1
+            return currentPoint
+        }
+
+        // If no target or reached target, decide what to do next
+        if state.targetPoint == nil || state.progress >= 1.0 {
+            // 30% chance to pause when reaching a destination
+            if state.targetPoint != nil && Float.random(in: 0...1) < 0.3 {
+                state.pauseFramesRemaining = Int.random(in: 30...120)
+                state.targetPoint = nil
+                return currentPoint
+            }
+
+            // Pick a new random target within bounds
+            let tx = CGFloat.random(in: bounds.minX...bounds.maxX)
+            let ty = CGFloat.random(in: bounds.minY...bounds.maxY)
+            state.targetPoint = CGPoint(x: tx, y: ty)
+            state.startPoint = currentPoint
+            state.progress = 0
+            
+            // Randomize speed for this segment
+            state.currentSpeed = baseSpeed * CGFloat.random(in: 0.4...1.2)
+        }
+
+        guard let start = state.startPoint, let target = state.targetPoint else {
+            return currentPoint
+        }
+
+        let dist = distance(from: start, to: target)
+        if dist < 1.0 {
+            state.progress = 1.0
+            return target
+        }
+
+        // Move progress forward based on speed and distance
+        let step = (state.currentSpeed * deltaTime) / dist
+        state.progress = min(1.0, state.progress + step)
+
+        // Use a smooth-step like easing (sinusoidal)
+        let t = state.progress
+        let easedT = 0.5 - 0.5 * cos(t * .pi)
+        
+        // Add a slight arc to the path
+        let offsetMagnitude = sin(t * .pi) * dist * 0.05
+        let angle = atan2(target.y - start.y, target.x - start.x)
+        let perpAngle = angle + .pi / 2.0
+        
+        let baseX = start.x + (target.x - start.x) * easedT
+        let baseY = start.y + (target.y - start.y) * easedT
+        
+        return CGPoint(
+            x: baseX + cos(perpAngle) * offsetMagnitude,
+            y: baseY + sin(perpAngle) * offsetMagnitude
+        )
     }
 
     private static func nextRandomPoint(
@@ -89,25 +170,27 @@ enum MotionEngine {
         state: inout MotionState
     ) -> CGPoint {
         if state.retargetFramesRemaining <= 0 {
+            // Less frequent retargeting for smoother random motion
             let randomHeading = CGFloat.random(in: 0...(2 * .pi))
-            let randomSpeed = baseSpeed * CGFloat.random(in: 0.5...1.15)
+            let randomSpeed = baseSpeed * CGFloat.random(in: 0.3...1.0)
             state.targetHeading = randomHeading
             state.targetSpeed = randomSpeed
-            state.retargetFramesRemaining = Int.random(in: 10...28)
+            state.retargetFramesRemaining = Int.random(in: 40...120)
         } else {
             state.retargetFramesRemaining -= 1
         }
 
-        state.heading = interpolateAngle(from: state.heading, to: state.targetHeading, factor: 0.18)
-        state.currentSpeed += (state.targetSpeed - state.currentSpeed) * 0.16
+        // Smoother interpolation
+        state.heading = interpolateAngle(from: state.heading, to: state.targetHeading, factor: 0.08)
+        state.currentSpeed += (state.targetSpeed - state.currentSpeed) * 0.1
 
         let desiredVelocity = CGVector(
             dx: cos(state.heading) * state.currentSpeed,
             dy: sin(state.heading) * state.currentSpeed
         )
 
-        state.velocity.dx += (desiredVelocity.dx - state.velocity.dx) * 0.25
-        state.velocity.dy += (desiredVelocity.dy - state.velocity.dy) * 0.25
+        state.velocity.dx += (desiredVelocity.dx - state.velocity.dx) * 0.15
+        state.velocity.dy += (desiredVelocity.dy - state.velocity.dy) * 0.15
 
         return CGPoint(
             x: currentPoint.x + state.velocity.dx * deltaTime,
@@ -130,7 +213,7 @@ enum MotionEngine {
             state.anchor = clamp(state.anchor ?? currentPoint, to: constrainedAnchorBounds)
         }
 
-        state.angle += deltaTime * max(0.9, baseSpeed / 20.0)
+        state.angle += deltaTime * max(0.9, baseSpeed / 25.0)
         let anchor = state.anchor ?? currentPoint
         return CGPoint(
             x: anchor.x + cos(state.angle) * radius,
@@ -154,7 +237,7 @@ enum MotionEngine {
             state.anchor = clamp(state.anchor ?? currentPoint, to: constrainedAnchorBounds)
         }
 
-        state.angle += deltaTime * max(1.0, baseSpeed / 18.0)
+        state.angle += deltaTime * max(1.0, baseSpeed / 22.0)
         let anchor = state.anchor ?? currentPoint
         return CGPoint(
             x: anchor.x + cos(state.angle) * horizontalRadius,
@@ -167,6 +250,10 @@ enum MotionEngine {
             x: min(max(point.x, rect.minX), rect.maxX),
             y: min(max(point.y, rect.minY), rect.maxY)
         )
+    }
+
+    private static func distance(from: CGPoint, to: CGPoint) -> CGFloat {
+        sqrt(pow(to.x - from.x, 2) + pow(to.y - from.y, 2))
     }
 
     private static func normalizeAngle(_ angle: CGFloat) -> CGFloat {

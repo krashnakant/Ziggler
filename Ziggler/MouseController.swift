@@ -9,6 +9,7 @@ import AppKit
 import Combine
 import KeyboardShortcuts
 import ServiceManagement
+import IOKit.pwr_mgt
 
 extension KeyboardShortcuts.Name {
     static let toggleMovement = Self("toggleMovement")
@@ -16,7 +17,7 @@ extension KeyboardShortcuts.Name {
 
 class MouseController: ObservableObject {
     @Published var isMoving = false
-    @Published var selectedPattern: MovementPattern = .random
+    @Published var selectedPattern: MovementPattern = .human
     @Published var speed: Double = 50.0
     @Published var hasPermission = AXIsProcessTrusted()
     @Published var launchAtLogin = false
@@ -29,6 +30,7 @@ class MouseController: ObservableObject {
     private var lastMovementTimestamp: CFTimeInterval?
     private var lastResolvedScreen: NSScreen?
     private var virtualLocation: CGPoint?
+    private var assertionID: IOPMAssertionID = 0
 
     init() {
         setupKeyboardMonitor()
@@ -147,6 +149,22 @@ class MouseController: ObservableObject {
         virtualLocation = NSEvent.mouseLocation
         isMoving = true
 
+        // Prevent system sleep
+        let reason = "Ziggler is actively moving the cursor" as CFString
+        let result = IOPMAssertionCreateWithDescription(
+            kIOPMAssertionTypeNoIdleSleep as CFString,
+            reason,
+            nil,
+            nil,
+            nil,
+            0,
+            nil,
+            &assertionID
+        )
+        if result != kIOReturnSuccess {
+            print("Failed to create power assertion: \(result)")
+        }
+
         let workItem = DispatchWorkItem { [weak self] in
             self?.beginMovement()
         }
@@ -178,6 +196,12 @@ class MouseController: ObservableObject {
         lastMovementTimestamp = nil
         lastResolvedScreen = nil
         virtualLocation = nil
+
+        // Release power assertion
+        if assertionID != 0 {
+            IOPMAssertionRelease(assertionID)
+            assertionID = 0
+        }
     }
 
     private func performMovement() {
